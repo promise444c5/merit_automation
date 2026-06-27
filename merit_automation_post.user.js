@@ -15,15 +15,77 @@
   "use strict";
 
   GM_addStyle(`
-        #merit-queue-modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); }
-        #merit-queue-content { background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 650px; box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2); color: #000; }
-        .mq-close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
-        .mq-close:hover { color: black; }
-        .mq-item { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
-        #mq-save-container { text-align: center; margin-top: 20px; }
-        #mq-save-btn { padding: 10px 30px; font-size: 16px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 4px; }
-        #open-mq-btn { position: fixed; bottom: 20px; right: 20px; padding: 10px 15px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; z-index: 9998; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-    `);
+       /* Modal Overlay */
+        #merit-queue-modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(3px); }
+
+        /* Modal */
+        #merit-queue-content {
+            background-color: #ffffff; margin: 4% auto; padding: 24px; border-radius: 12px;
+            width: 85%; max-width: 850px; max-height: 85vh; /* Keep within viewport */
+            display: flex; flex-direction: column; /* Allows nested list to fill space & scroll */
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3); color: #333; font-family: system-ui, -apple-system, sans-serif;
+            box-sizing: border-box; max-height: 80vh; overflow-y: auto; to #merit-queue-content
+        }
+
+        /* Header & Close */
+        .mq-close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s; line-height: 1; }
+        .mq-close:hover { color: #e74c3c; }
+        #merit-queue-content h2 { margin-top: 0; margin-bottom: 5px; border-bottom: 2px solid #f0f0f0; padding-bottom: 12px; font-size: 20px; color: #2c3e50;}
+
+        /* Scrolling List */
+        #mq-list {
+            flex-grow: 1; overflow-y: auto; overflow-x: hidden;
+            padding-right: 12px; margin: 15px 0;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+
+        /* Smooth Scrollbar for mq-list */
+        #mq-list::-webkit-scrollbar { width: 8px; }
+        #mq-list::-webkit-scrollbar-track { background: #f8f9fa; border-radius: 4px; }
+        #mq-list::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        #mq-list::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+
+        /* Queue Item Cards */
+        .mq-item {
+            display: flex; align-items: center; justify-content: space-between;
+            background: #f8f9fc; padding: 16px; border-radius: 8px; border: 1px solid #eaedf1;
+            transition: all 0.2s ease-in-out;
+            flex-wrap: wrap; gap: 10px;
+        }
+        .mq-item > div:nth-child(2) {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+
+         }
+        .mq-item:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(0,0,0,0.05); border-color: #d1d5db; flex:wrap }
+
+        /* Inputs & Form Elements */
+        .mq-amount, .mq-date { padding: 6px 10px; border: 0.5px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 13px; color: #333; outline: none; transition: border-color 0.2s; }
+        .mq-amount:focus, .mq-date:focus { border-color: #3b82f6; }
+
+        /* Action Buttons */
+        .mq-remove {
+            background: #fee2e2; color: #ef4444; border: none; border-radius: 50%;
+            width: 32px; height: 32px; font-weight: bold; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s; margin-left: 20px;
+            margin: 0 !important;
+            flex-shrink: 0;
+        }
+        .mq-remove:hover { background: #fca5a5; color: #7f1d1d; transform: scale(1.05); }
+
+        #mq-save-container { text-align: center; margin-top: auto; padding-top: 15px; border-top: 2px solid #f0f0f0; }
+        #mq-save-btn {
+            padding: 12px 35px; font-size: 15px; font-weight: 600; cursor: pointer;
+            background: #047857; color: #fff;
+            border: none; border-radius: 6px; box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3); transition: all 0.2s;
+        }
+        #mq-save-btn:hover { background: #059669; box-shadow: 0 6px 14px rgba(16, 185, 129, 0.4); translateY(-1px); }
+        #mq-save-btn:active { transform: translateY(2px); box-shadow: 0 2px 5px rgba(16, 185, 129, 0.3); }
+
+        #open-mq-btn { position: fixed; bottom: 25px; right: 25px; padding: 12px 20px; font-weight: 600; background: #375f82; color: white; border: none; border-radius: 50px; cursor: pointer; z-index: 9998; box-shadow: 0 6px 12px rgba(59, 130, 246, 0.3); transition: transform 0.2s; }
+        #open-mq-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(59, 130, 246, 0.4); opacity:0.95; background:#3e6488 }`);
 
   /* Loads active queue from storage on script initialization*/
   let meritQueue = GM_getValue("merit_queue", []);
@@ -86,8 +148,10 @@
     `
         <div id="merit-queue-modal">
             <div id="merit-queue-content">
+              <div>
                 <span class="mq-close">&times;</span>
                 <h2 style="margin-top:0; border-bottom:2px solid #ccc; padding-bottom:10px;">Merit Queue Settings</h2>
+              </div>
                 <div id="mq-list"></div>
                 <div id="mq-save-container"><button id="mq-save-btn">Save Changes</button></div>
             </div>
@@ -248,7 +312,7 @@
             hasChanges = true;
           }
         }
-        await new Promise((res) => setTimeout(res, 1000)); //wait to prevent rate-limiting
+        await new Promise((res) => setTimeout(res, 3000)); //wait to prevent rate-limiting
       } catch (err) {
         console.error("Network error dispensing merit, keeping in queue:", err);
       }
