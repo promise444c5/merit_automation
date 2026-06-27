@@ -325,7 +325,6 @@
               console.log(
                 `Successfully sent ${item.amount} merit for MsgID ${item.msgId}`,
               );
-              // Remove by exact index mapping (faster than filter)
             queue.splice(i, 1);
             GM_setValue("merit_queue", queue);
             }
