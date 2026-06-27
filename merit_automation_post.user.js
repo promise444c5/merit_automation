@@ -6,6 +6,7 @@
 // @author       promise444c5
 // @match        https://bitcointalk.org/index.php?topic=*
 // @match        https://bitcointalk.org/index.php?action=post*
+// @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addStyle
@@ -195,6 +196,7 @@
                 </div>
             `;
       })
+      .reverse()
       .join("");
   };
 
@@ -232,26 +234,31 @@
     modal.style.display = "none";
   };
 
-  /* Main automation logic */
+    /* Main automation logic */
   const processMeritQueue = async () => {
     const isNewPost = GM_getValue("NewPost", false);
     if (!isNewPost) return;
+    
+    /* Clear trigger flag immediately */
+    GM_setValue("NewPost", false);
 
-    const queue = GM_getValue("merit_queue", []);
-    if (!queue.length) {
-      GM_setValue("NewPost", false);
-      return;
-    }
+    let queue = GM_getValue("merit_queue", []);
+    if (!queue.length) return;
 
     const sc = document
       .querySelector('a[href*="action=logout;sesc="]')
       ?.href.match(/sesc=([a-f0-9]+)/)?.[1];
     if (!sc) return;
 
-    let updatedQueue = [...queue];
-    let hasChanges = false;
+    for (let i = queue.length - 1; i >= 0; i--) {
+      queue = GM_getValue("merit_queue", []);
+      
+      let item = queue[i];
+      if (!item) continue;
+      
+      /* Prevent unnecessary network requests for known failed items */
+      if (item.status === "failed") continue;
 
-    for (const item of queue) {
       console.log(
         `Attempting to dispense ${item.amount} merit to MsgID ${item.msgId}...`,
       );
@@ -278,10 +285,11 @@
 
         if (response.ok) {
           const html = await response.text();
+          
           if (html.includes("An Error Has Occurred")) {
             console.error(`Failed to send merit for MsgID ${item.msgId}`);
             let errorMsg = "Unknown error occurred.";
-
+            
             const lowerHtml = html.toLowerCase();
 
             /** Checks for error
@@ -294,34 +302,26 @@
               errorMsg = "Cannot send merit to yourself tuff guy.";
             }
 
-            /* Flags the failed item in the queue instead of deleting it */
-            const failedItem = updatedQueue.find((q) => q.msgId === item.msgId);
-            if (failedItem) {
-              failedItem.status = "failed";
-              failedItem.error = errorMsg;
-            }
-            hasChanges = true;
+            /** Flags and update  the failed item in the queue instead of deleting it */
+            queue[i].status = "failed";
+            queue[i].error = errorMsg;
+            GM_setValue("merit_queue", queue);
+            
           } else {
-            // Success case: Successfully sent merit posts are removed from queue
             console.log(
               `Successfully sent ${item.amount} merit for MsgID ${item.msgId}`,
             );
-            updatedQueue = updatedQueue.filter(
-              ({ msgId }) => msgId !== item.msgId,
-            );
-            hasChanges = true;
+            
+            // Remove by exact index mapping (faster than filter)
+            queue.splice(i, 1);
+            GM_setValue("merit_queue", queue);
           }
         }
-        await new Promise((res) => setTimeout(res, 3000)); //wait to prevent rate-limiting
+        await new Promise((res) => setTimeout(res, 3000)); // wait to prevent rate-limiting before next attempt
       } catch (err) {
-        console.error("Network error dispensing merit, keeping in queue:", err);
+        console.error("Error dispensing merit, keeping in queue:", err);
       }
     }
-
-    if (hasChanges) GM_setValue("merit_queue", updatedQueue);
-
-    /* Clears flag  to prevent re-processing on page reloads*/
-    GM_setValue("NewPost", false);
   };
 
   const postForm =

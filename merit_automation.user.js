@@ -5,6 +5,7 @@
 // @description  Queue posts to merit them later with precise time execution.. User has to login for scrpt to load.
 // @author       promise444c5
 // @match        https://bitcointalk.org/index.php?topic=*
+// @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addStyle
@@ -203,6 +204,7 @@
                 </div>
             `;
       })
+      .reverse()
       .join("");
   };
 
@@ -247,8 +249,8 @@
 
   /* Main automation logic */
   const processMeritQueue = async () => {
-    const queue = GM_getValue("merit_queue", []);
-    if (!queue.length) return;
+ let queue = GM_getValue("merit_queue", []);    
+ if (!queue.length) return;
 
     const currentLocalTime = getLocalISOTime(new Date());
 
@@ -258,10 +260,14 @@
 
     if (!sc) return;
 
-    let updatedQueue = [...queue];
-    let hasChanges = false;
+   for (let i = queue.length - 1; i >= 0; i--) {
+      queue = GM_getValue("merit_queue", []);
+      
+      let item = queue[i];
+      if (!item) continue;
+       /* Prevent unnecessary network requests for known failed items */
+      if (item.status === "failed") continue;
 
-    for (const item of queue) {
       // Evaluates precise minute accuracy instead of just the day
       if (item.date <= currentLocalTime) {
         console.log(
@@ -309,37 +315,30 @@
               }
 
               /* Flags the failed item in the queue instead of deleting it */
-              const failedItem = updatedQueue.find(
-                (q) => q.msgId === item.msgId,
-              );
-              if (failedItem) {
-                failedItem.status = "failed";
-                failedItem.error = errorMsg;
-              }
-              hasChanges = true;
+              /** Flags and update  the failed item in the queue instead of deleting it */
+              queue[i].status = "failed";
+              queue[i].error = errorMsg;
+              GM_setValue("merit_queue", queue);
+            
             } else {
-              /* Success case: Successfully sent merit posts are removed from queue */
+              
               console.log(
                 `Successfully sent ${item.amount} merit for MsgID ${item.msgId}`,
               );
-              updatedQueue = updatedQueue.filter(
-                ({ msgId }) => msgId !== item.msgId,
-              );
-              hasChanges = true;
+              // Remove by exact index mapping (faster than filter)
+            queue.splice(i, 1);
+            GM_setValue("merit_queue", queue);
             }
           }
 
-          await new Promise((res) => setTimeout(res, 3000)); // wait to prevent rate-limiting
+          await new Promise((res) => setTimeout(res, 3000)); // wait to prevent rate-limiting before next attempt
         } catch (err) {
           console.error(
-            "Error dispensing merit, keeping in queue:",
-            err,
-          );
+            "Error dispensing merit, keeping in queue:", err);
         }
       } else console.log("Time not Fufiiled yet...");
     }
 
-    if (hasChanges) GM_setValue("merit_queue", updatedQueue);
   };
 
   processMeritQueue();
