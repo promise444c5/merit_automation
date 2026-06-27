@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bitcointalk Merit Automation [No_Post_Trigger]
-// @namespace    http://...
-// @version      1.0
+// @namespace    https://greasyfork.org/users/1613258
+// @version      1.1.0
 // @description  Queue posts to merit them later with a precise time execution.. User has to login for scrpt to load.
 // @author       promise444c5
 // @match        https://bitcointalk.org/index.php?topic=*
@@ -9,6 +9,8 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addStyle
+// @grant        GM_deleteValue
+// @run-at      document-end
 // ==/UserScript==
 
 (() => {
@@ -79,6 +81,14 @@
             flex-shrink: 0;
         }
         .mq-remove:hover { background: #fca5a5; color: #7f1d1d; transform: scale(1.05); }
+        #mq-force-send {
+            background: #f6bec4db; color: #721C24; border: none; border-radius: 50%;
+            width: 32px; height: 32px; font-weight: bold; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s; margin-left: 5px;
+            margin: 0 !important;
+            flex-shrink: 0;
+        }
+        #mq-force-send:hover { background: #fdba74; color: #78350f; transform: scale(1.05); }
 
         #mq-save-container { text-align: center; margin-top: auto; padding-top: 15px; border-top: 2px solid #f0f0f0; }
         #mq-save-btn {
@@ -92,13 +102,17 @@
         #open-mq-btn { position: fixed; bottom: 25px; right: 25px; padding: 12px 20px; font-weight: 600; background: #375f82; color: white; border: none; border-radius: 50px; cursor: pointer; z-index: 9998; box-shadow: 0 6px 12px rgba(59, 130, 246, 0.3); transition: transform 0.2s; }
         #open-mq-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(59, 130, 246, 0.4); opacity:0.95; background:#3e6488 }`);
 
+
+  const LOCK_KEY = "merit_queue_lock";
+  const LOCK_DURATION = 60000;
+
   /* Loads active queue from storage on script initialization*/
-  let meritQueue = GM_getValue("merit_queue", []);
+  let meritQueue = GM_getValue("MERIT_QUEUE", []);
 
   const queueBtnTemplate = document.createElement("a");
   queueBtnTemplate.href = "javascript:void(0);";
   queueBtnTemplate.innerHTML =
-    '&nbsp;&nbsp;<span style="vertical-align: middle;"><b>+Queue</b></span>';
+    '&nbsp;&nbsp;<span style="vertical-align: middle;"><b>+Qmerit</b></span>';
 
   const topicMatch = window.location.href.match(/topic=(\d+)/);
   const topicId = topicMatch ? topicMatch[1] : "0";
@@ -130,24 +144,26 @@
   });
 
   const addToQueue = (topicId, msgId, username) => {
-    if (meritQueue.some((item) => item.msgId === msgId))
-      return alert("Post is already in the queue!");
-
+    if (meritQueue.some((item) => item.msgId === msgId)) return alert("Post is already in the queue!");
+   
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     meritQueue = [
       ...meritQueue,
       {
+        id:`${Date.now()}-${msgId}`,
         topicId,
         msgId,
         username,
         amount: 1,
-        date: getLocalISOTime(tomorrow),
+        date: tomorrow.getTime(),
+        forceSend: false,
+        attempts: 0,
       },
     ];
     console.log("Updated Merit Queue:", meritQueue);
-    GM_setValue("merit_queue", meritQueue);
+    GM_setValue("MERIT_QUEUE", meritQueue);
     alert(`Added a post from ${username} to Merit Queue`);
   };
 
@@ -190,16 +206,19 @@
           .join("");
 
         return `
-                <div class="mq-item" ${item.status === "failed" ? 'style="background-color: #ffe6e6; padding: 10px;"' : ""}>
+                  <div class="mq-item" ${item.status === "failed" ? 'style="background-color: #ffe6e6; padding: 10px;"' : ""}>
                     <div>
                         <strong>User: ${item.username}</strong><br>
                         <a href="https://bitcointalk.org/index.php?topic=${item.topicId}.msg${item.msgId}#msg${item.msgId}" target="_blank" style="font-size:12px;">Link to Msg: #${item.msgId}</a>
-                        ${item.error ? `<br><span style="color:red; font-size:12px;"><b>Error:</b> ${item.error}</span>` : ""}
+                        ${item.error && !item.forceSend ? `<br><span style="color:red; font-size:12px;"><b>Error:</b> ${item.error}</span><br>` : ""}
                     </div>
                     <div>
                         <label>Merit: <select class="mq-amount" data-index="${index}">${options}</select></label>
-                        <label style="margin-left: 15px;">Date & Time: <input type="datetime-local" class="mq-date" data-index="${index}" value="${item.date}"></label>
+                        <label style="margin-left: 15px;">Date & Time: <input type="datetime-local" class="mq-date" data-index="${index}" value="${new Date(item.date).toISOString().slice(0, 16)}"></label>
+                        <div style="display:flex; align-items:center; gap:10px; margin-top:5px;">
+                        ${item.error && !item.forceSend ? `<button id="mq-force-send" data-index="${index}" title="Force send merit (ignores history log check)" style="margin-left: 5px; color: #721c24;">!</button>` : ""}
                         <button class="mq-remove" data-index="${index}" title="Remove from queue" style="margin-left: 15px; color: red;">X</button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -212,13 +231,25 @@
   listContainer.addEventListener("click", (e) => {
     if (e.target?.classList.contains("mq-remove")) {
       meritQueue.splice(e.target.dataset.index, 1);
-      GM_setValue("merit_queue", meritQueue);
+      GM_setValue("MERIT_QUEUE", meritQueue);
       renderQueue();
     }
   });
 
+  /* force send button */
+  listContainer.addEventListener("click", (e) => {
+    if (e.target?.id === "mq-force-send") {
+      const index = e.target.dataset.index;
+      meritQueue[index].forceSend = true;
+      meritQueue[index].date = Date.now();
+      GM_setValue("MERIT_QUEUE", meritQueue);
+      renderQueue();
+    }
+  });
+
+
   document.getElementById("open-mq-btn").onclick = () => {
-    meritQueue = GM_getValue("merit_queue", []);
+    meritQueue = GM_getValue("MERIT_QUEUE", []);
     renderQueue();
     modal.style.display = "block";
   };
@@ -239,40 +270,77 @@
     });
 
     document.querySelectorAll(".mq-date").forEach((inp) => {
-      meritQueue[inp.dataset.index].date = inp.value;
+      meritQueue[inp.dataset.index].date = new Date(inp.value).getTime();
     });
 
-    GM_setValue("merit_queue", meritQueue);
+    GM_setValue("MERIT_QUEUE", meritQueue);
     alert("Queue settings successfully saved!");
     modal.style.display = "none";
   };
 
   /* Main automation logic */
-  const processMeritQueue = async () => {
- let queue = GM_getValue("merit_queue", []);    
+const processMeritQueue = async () => {
+ const queue = GM_getValue("MERIT_QUEUE", []);
+ console.log("Processing Merit Queue:", queue);
+
  if (!queue.length) return;
 
-    const currentLocalTime = getLocalISOTime(new Date());
+ if(!acquireLock()) {
+    console.warn("Another instance is already processing the queue. Exiting this run.");
+    return;
+  }
 
-    const sc = document
+  try {
+
+  const currentLocalTime =  Date.now();
+
+  
+  const sc = document
       .querySelector('a[href*="action=logout;sesc="]')
       ?.href.match(/sesc=([a-f0-9]+)/)?.[1];
 
-    if (!sc) return;
+  
+  if (!sc) return;
 
-   for (let i = queue.length - 1; i >= 0; i--) {
-      queue = GM_getValue("merit_queue", []);
-      
-      let item = queue[i];
-      if (!item) continue;
+  for (let i = queue.length - 1; i >= 0; i--) {
+    
+    let item = queue[i];
+    if (!item) continue;
        /* Prevent unnecessary network requests for known failed items */
-      if (item.status === "failed") continue;
+    if (item.status === "failed" && !item.forceSend) continue;
 
-      // Evaluates precise minute accuracy instead of just the day
-      if (item.date <= currentLocalTime) {
+    if (item.date <= currentLocalTime) {
         console.log(
           `Time reached! Attempting to dispense ${item.amount} merit to MsgID ${item.msgId}...`,
         );
+      
+        /*prevent double sending merit by checking log* */
+      if(checkDoubleSend(item.id,item.date) && !item.forceSend){
+          /*flags the failed item in the queue instead of deleting it */
+          updateQueueItem(item.id, (existing) => ({
+            ...existing,
+            status: "failed",
+            error: "Merit already sent for this post (found in history log).",
+            attempts: (existing.attempts ?? 0) + 1,
+          }));
+          console.warn(`Merit for MsgID ${item.msgId} with amount ${item.amount} already exists in history, skipping...`);
+          continue;
+       }
+
+      if(item.attempts >= 2 && item.forceSend){
+        console.warn(`Merit for MsgID ${item.msgId} with amount ${item.amount} has failed 3 times, removing from queue...`);
+        removeQueueItem(item.id);
+        continue;
+      }
+
+       if (item.forceSend) {
+          console.warn(`Force sending enabled for MsgID ${item.msgId}, ignoring history log check.`);
+          item.forceSend = false;
+          updateQueueItem(item.id, (existing) => ({
+            ...existing,
+            forceSend: false,
+          }));
+        }
 
         const formData = new URLSearchParams({
           merits: item.amount,
@@ -310,35 +378,108 @@
 
               if (lowerHtml.includes("enough smerit")) {
                 errorMsg = "Not enough sMerit.";
-              } else if (lowerHtml.includes("cannot send merit to yourself")) {
+              } 
+              
+              else if (lowerHtml.includes("cannot send merit to yourself")) {
                 errorMsg = "Cannot send merit to yourself tuff guy.";
               }
+               
+              else if(lowerHtml.includes("you can only send 50 merit ")) {
+                const match = lowerHtml.match(/you have already sent (\d+) merit to that user/i);
 
-              /* Flags the failed item in the queue instead of deleting it */
-              /** Flags and update  the failed item in the queue instead of deleting it */
-              queue[i].status = "failed";
-              queue[i].error = errorMsg;
-              GM_setValue("merit_queue", queue);
+                const sentMerit = match && !Number.isNaN(Number.parseInt(match[1], 10))? Number.parseInt(match[1], 10) : 0;
+                errorMsg = sentMerit >= 50 ? "You have already sent the maximum amount of merit to this user."
+                            : sentMerit === 0 ? "You cant send merit to this user right now."
+                            : `You can only send ${50 - sentMerit} merit to this user.`;
+                }
+              else if (lowerHtml.includes("you have already sent")) {
+                errorMsg = "You have already sent merit to this user.";
+              }
+
+                /** Flags and update  the failed item in the queue instead of deleting it */
+              updateQueueItem(item.id, (existing) => ({
+                ...existing,
+                status: "failed",
+                error: errorMsg,
+                attempts: (existing.attempts ?? 0) + 1,
+              }));
+              renderQueue();
             
             } else {
-              
+              removeQueueItem(item.id);
+              const successLogs = GM_getValue("SUCCESS_LOGS", []);
+              successLogs.push({ id: item.id, timestamp: item.date });
+              GM_setValue("SUCCESS_LOGS", successLogs);
+              renderQueue();
               console.log(
                 `Successfully sent ${item.amount} merit for MsgID ${item.msgId}`,
               );
-            queue.splice(i, 1);
-            GM_setValue("merit_queue", queue);
             }
           }
-
-          await new Promise((res) => setTimeout(res, 3000)); // wait to prevent rate-limiting before next attempt
+          await new Promise((res) => setTimeout(res, 1500)); // wait to prevent rate-limiting before next attempt
+        
         } catch (err) {
-          console.error(
-            "Error dispensing merit, keeping in queue:", err);
+          console.error(`Error dispensing merit for MsgID ${item.msgId}:`);
+          throw new Error(`Error dispensing merit to ${item.msgId}, keeping in queue: ${err.message}`);
         }
       } else console.log("Time not Fufiiled yet...");
+    } 
+  }finally{
+     const failCount = GM_getValue("MERIT_QUEUE", []).filter(item => item.status === "failed").length;
+      if(failCount > 0) alert(`Merit queue processing completed with ${failCount} failed item(s). Please review the queue for details.`);
+      else console.log("Merit queue processing completed successfully with no errors.");
+      releaseLock();
     }
-
   };
 
-  processMeritQueue();
+  /* Checks success log for a specific msgId and amount to prevent double sending */
+  const checkDoubleSend = (currentId,timestamp) => {
+    const logs = GM_getValue("SUCCESS_LOGS", []);
+    if(logs.length === 0) return false;
+
+    const lifeSpan = Date.now() - 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+
+    const freshLogs = logs.filter(l => l.timestamp > lifeSpan);
+ 
+    GM_setValue("SUCCESS_LOGS", freshLogs);
+    console.log(GM_getValue("SUCCESS_LOGS", []),"success logs",freshLogs.length,"Fresh success logs after cleanup");
+
+    return freshLogs.some(l => l.id === currentId && l.timestamp === timestamp);
+  };
+
+  const updateQueueItem = (id, updater) => {
+    const queue = GM_getValue("MERIT_QUEUE", []);
+    const idx = queue.findIndex(x => x.id === id);
+    if (idx === -1) return;
+    queue[idx] = updater(queue[idx]);
+    GM_setValue("MERIT_QUEUE", queue);
+};
+
+const removeQueueItem = (id) => {
+  const queue = GM_getValue("MERIT_QUEUE", []);
+
+  const updated = queue.filter(item => item.id !== id);
+
+  GM_setValue("MERIT_QUEUE", updated);
+};
+
+const isStale = (lock) => !lock || (Date.now() - lock.startedAt > LOCK_DURATION);
+
+const acquireLock = () => {
+    const lock = GM_getValue(LOCK_KEY, null);
+
+    if (lock && lock.active && !isStale(lock)) return false;
+
+    GM_setValue(LOCK_KEY, {
+      active: true,
+      startedAt: Date.now()
+    });
+
+  return true;
+};
+
+const releaseLock = () => GM_deleteValue(LOCK_KEY);
+
+processMeritQueue();
+
 })();

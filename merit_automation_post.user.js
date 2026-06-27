@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bitcointalk Merit Automation [Post_Trigger]
-// @namespace    http://...
-// @version      1.0
+// @namespace    https://greasyfork.org/users/1613258
+// @version      1.1.0
 // @description  Queue posts to merit them later on next post.. User has to login for script to load.
 // @author       promise444c5
 // @match        https://bitcointalk.org/index.php?topic=*
@@ -269,41 +269,32 @@
   /* 
   ** Main automation logic 
   */
-  const processMeritQueue = async () => {
-    const queue = GM_getValue("MERIT_QUEUE", []);
-    const attempt = GM_getValue("POST_ATTEMPT",null);
+const processMeritQueue = async () => {
+  const queue = GM_getValue("MERIT_QUEUE", []);
+  const attempt = GM_getValue("POST_ATTEMPT",null);
 
-    if (!attempt) return;
-    if (!queue.length) {
+  if (!attempt) return;
+  if (!queue.length) {
         console.log("Merit queue is empty. Nothing to process.");
         return;
       }
 
-    const isNewPost = location.hash === "#new" && location.href.includes("topic=");
+  const isNewPost = location.hash === "#new" && location.href.includes("topic=");
 
-    console.log("Post submission detected, checking conditions for merit queue processing...", { isNewPost, attemptTime: attempt, currentTime: Date.now() }); // for testing , to be stripped..
-    
+  console.log("Post submission detected, checking conditions for merit queue processing...", { isNewPost, attemptTime: attempt, currentTime: Date.now() }); // for testing , to be stripped..
 
-    // const minDelay = Math.max(1, queue.length) * 10000;
-
-    // if (Date.now() - attempt < minDelay) {
-    //   console.error("Insufficient time elapsed since last post attempt. Aborting this attempt.");
-    //   return;
-    // }
-
-    if (!isNewPost) {
+  if (!isNewPost) {
       console.log("Not a new post submission.")
       return;
     }
 
-    if (!acquireLock()) {
+  if (!acquireLock()) {
       console.log("Another merit queue process is currently running. Aborting this attempt..");
       return;
     }
 
-    
+  try {
 
-    try {
     GM_deleteValue("POST_ATTEMPT");
     const sc = document
         .querySelector('a[href*="action=logout;sesc="]')
@@ -313,10 +304,6 @@
       console.error("Cannot proceed with merit dispensing. Make sure you are logged in "); 
       return
     };
-
-    const successLogs = GM_getValue("SUCCESS_LOGS",[]);
-      
-    console.log(successLogs, successLogs.length, "Current success logs for double send check");
       
     for (let i = queue.length - 1; i >= 0; i--) {
         
@@ -328,20 +315,19 @@
         
 
           /* Prevent double sending merit by checking log */
-        if (checkDoubleSend(successLogs,item.id) && !item.forceSend) {
-          console.warn(`Merit for MsgID ${item.msgId} with amount ${item.amount} already exists in history, skipping...`);
+        if (checkDoubleSend(item.id) && !item.forceSend) {
           /* Flags the failed item in the queue instead of deleting it */
           updateQueueItem(item.id,(existing) =>({
             ...existing,
             status:"failed",
             error:"Merit already sent (detected in history).",
-            attempts: existing.attempts + 1
+            attempts: (existing.attempts ?? 0) + 1
           }));
-          
+          console.warn(`Merit for MsgID ${item.msgId} with amount ${item.amount} already exists in history, skipping...`);
           continue;
         }
 
-        if( item.attempts >= 3 && item.forceSend) {
+        if( item.attempts >= 2 && item.forceSend) {
           console.warn(`Merit for MsgID ${item.msgId} has failed ${item.attempts} times, removing from queue...`);
           removeQueueItem(item.id);
           continue;
@@ -411,34 +397,35 @@
                             : sentMerit === 0 ? "You cant send merit to this user right now."
                             : `You can only send ${50 - sentMerit} merit to this user.`;
                 }
+                else if (lowerHtml.includes("you have already sent")) {
+                  errorMsg = "You have already sent merit to this user.";
+                }
 
               /** Flags and update  the failed item in the queue instead of deleting it */
-             
-
               updateQueueItem(item.id, (existing) => ({
                 ...existing,
-                attempts: existing.attempts + 1 ,
+                attempts: (existing.attempts ?? 0) + 1 ,
                 status: "failed",
                 error: errorMsg,
               }));
               renderQueue();
 
             } else {
-              console.log(
-                `Successfully sent ${item.amount} merit for MsgID ${item.msgId}`,
-              );
-
               removeQueueItem(item.id);
               const logs = GM_getValue("SUCCESS_LOGS",[]);
               logs.push({ id: item.id, timestamp: Date.now() });
               GM_setValue("SUCCESS_LOGS", logs);
               renderQueue();
+              console.log(
+                `Successfully sent ${item.amount} merit for MsgID ${item.msgId}`,
+              );
             }
           }
           await new Promise((res) => setTimeout(res, 1500)); // wait to prevent rate-limiting before next attempt
 
         } catch (err) {
-          console.error("Error dispensing merit, keeping in queue:", err);
+          console.error(`Error dispensing merit for MsgID ${item.msgId}:`);
+          throw new Error(`Error dispensing merit to ${item.msgId}, keeping in queue: ${err.message}`);
         }
       }
     } catch (err) {
@@ -453,7 +440,8 @@
 /* End of main automation logic */
 
   /* Checks success log for a specific msgId and amount to prevent double sending */
-  const checkDoubleSend = (logs, currentId) => {
+  const checkDoubleSend = (currentId) => {
+    const logs = GM_getValue("SUCCESS_LOGS", []);
 
     if(logs.length === 0) return false;
 
@@ -470,7 +458,7 @@
   };
 
 
-  const updateQueueItem = (id, updater) => {
+const updateQueueItem = (id, updater) => {
     const queue = GM_getValue("MERIT_QUEUE", []);
    const idx = queue.findIndex(x => x.id === id);
     if (idx === -1) return;
@@ -488,9 +476,9 @@ const removeQueueItem = (id) => {
 };
   /* Locking mechanism to prevent multiple concurrent processes  */
   
-  const isStale = (lock) => !lock || (Date.now() - lock.startedAt > LOCK_DURATION);
+const isStale = (lock) => !lock || (Date.now() - lock.startedAt > LOCK_DURATION);
 
-  const acquireLock = () => {
+const acquireLock = () => {
     const lock = GM_getValue(LOCK_KEY, null);
 
     if (lock && lock.active && !isStale(lock)) return false;
@@ -504,7 +492,7 @@ const removeQueueItem = (id) => {
 };
 
 
- const releaseLock = () => GM_deleteValue(LOCK_KEY);
+const releaseLock = () => GM_deleteValue(LOCK_KEY);
 
 /* End of locking mechanism implementation */
 
