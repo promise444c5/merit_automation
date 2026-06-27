@@ -2,7 +2,7 @@
 // @name         Bitcointalk Merit Automation [No_Post_Trigger]
 // @namespace    http://...
 // @version      1.0
-// @description  Queue posts to merit them later with precise time execution.. User has to login for scrpt to load.
+// @description  Queue posts to merit them later with a precise time execution.. User has to login for scrpt to load.
 // @author       promise444c5
 // @match        https://bitcointalk.org/index.php?topic=*
 // @noframes
