@@ -99,10 +99,8 @@
         #open-mq-btn { position: fixed; bottom: 25px; right: 25px; padding: 12px 20px; font-weight: 600; background: #375f82; color: white; border: none; border-radius: 50px; cursor: pointer; z-index: 9998; box-shadow: 0 6px 12px rgba(59, 130, 246, 0.3); transition: transform 0.2s; }
         #open-mq-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(59, 130, 246, 0.4); opacity:0.95; background:#3e6488 }`);
 
-
   const LOCK_KEY = "merit_queue_lock";
   const LOCK_DURATION = 60000;
-  
 
   /* Loads active queue from storage on script initialization*/
   let meritQueue = GM_getValue("MERIT_QUEUE", []);
@@ -141,25 +139,24 @@
   });
 
   const addToQueue = (topicId, msgId, username) => {
-    if (meritQueue.some((item) => item.msgId === msgId)) return alert("Post is already in the queue!");
+    if (meritQueue.some((item) => item.msgId === msgId))
+      return alert("Post is already in the queue!");
 
     meritQueue = [
       ...meritQueue,
-       {
-        id: `${Date.now()}-${msgId}`, 
+      {
+        id: `${Date.now()}-${msgId}`,
         topicId,
         msgId,
         username,
         amount: 1,
         forceSend: false,
-        attempts:0,
+        attempts: 0,
       },
-      
     ];
 
     GM_setValue("MERIT_QUEUE", meritQueue);
-      alert(`Added a post from ${username} to Merit Queue`);
-
+    alert(`Added a post from ${username} to Merit Queue`);
   };
 
   /* Modal*/
@@ -173,7 +170,16 @@
                 <h2 style="margin-top:0; border-bottom:2px solid #ccc; padding-bottom:10px;">Merit Queue Settings</h2>
               </div>
                 <div id="mq-list"></div>
+               <div>
+                <div id="mq-merit-tracker">
+                 <p>Total sMerit: <span id="mq-total-smerit">0</span></p>
+                 <p>Source sMerit: <span id="mq-source-smerit">0</span></p>
+                 <p>Queued sMerit: <span id="mq-queued-smerit">0</span></p> 
+                 <p>Remaining sMerit: <span id="mq-remaining-smerit">0</span></p>
+                 <p>Remaining Source sMerit: <span id="mq-remaining-source-smerit">0</span></p>
+                </div>
                 <div id="mq-save-container"><button id="mq-save-btn">Save Changes</button></div>
+                </div>
             </div>
         </div>
         <button id="open-mq-btn">View Merit Queue</button>
@@ -265,70 +271,78 @@
     modal.style.display = "none";
   };
 
-  
-  /* 
-  ** Main automation logic 
-  */
-const processMeritQueue = async () => {
-  const queue = GM_getValue("MERIT_QUEUE", []);
-  const attempt = GM_getValue("POST_ATTEMPT",null);
+  /*
+   ** Main automation logic
+   */
+  const processMeritQueue = async () => {
+    const queue = GM_getValue("MERIT_QUEUE", []);
+    const attempt = GM_getValue("POST_ATTEMPT", null);
 
-  if (!attempt) return;
-  if (!queue.length) {
-        console.log("Merit queue is empty. Nothing to process.");
+    if (!attempt) return;
+    if (!queue.length) {
+      console.log("Merit queue is empty. Nothing to process.");
+      return;
+    }
+
+    const isNewPost =
+      location.hash === "#new" && location.href.includes("topic=");
+
+    console.log(
+      "Post submission detected, checking conditions for merit queue processing...",
+      { isNewPost, attemptTime: attempt, currentTime: Date.now() },
+    ); // for testing , to be stripped..
+
+    if (!isNewPost) {
+      console.log("Not a new post submission.");
+      return;
+    }
+
+    if (!acquireLock()) {
+      console.log(
+        "Another merit queue process is currently running. Aborting this attempt..",
+      );
+      return;
+    }
+
+    try {
+      GM_deleteValue("POST_ATTEMPT");
+      const sc = document
+        .querySelector('a[href*="action=logout;sesc="]')
+        ?.href.match(/sesc=([a-f0-9]+)/)?.[1];
+
+      if (!sc) {
+        console.error(
+          "Cannot proceed with merit dispensing. Make sure you are logged in ",
+        );
         return;
       }
 
-  const isNewPost = location.hash === "#new" && location.href.includes("topic=");
-
-  console.log("Post submission detected, checking conditions for merit queue processing...", { isNewPost, attemptTime: attempt, currentTime: Date.now() }); // for testing , to be stripped..
-
-  if (!isNewPost) {
-      console.log("Not a new post submission.")
-      return;
-    }
-
-  if (!acquireLock()) {
-      console.log("Another merit queue process is currently running. Aborting this attempt..");
-      return;
-    }
-
-  try {
-
-    GM_deleteValue("POST_ATTEMPT");
-    const sc = document
-        .querySelector('a[href*="action=logout;sesc="]')
-        ?.href.match(/sesc=([a-f0-9]+)/)?.[1];
-        
-    if (!sc){
-      console.error("Cannot proceed with merit dispensing. Make sure you are logged in "); 
-      return
-    };
-      
-    for (let i = queue.length - 1; i >= 0; i--) {
-        
+      for (let i = queue.length - 1; i >= 0; i--) {
         let item = queue[i];
         if (!item) continue;
 
         /* Prevent unnecessary network requests for known failed items */
         if (item.status === "failed" && !item.forceSend) continue;
-        
 
-          /* Prevent double sending merit by checking log */
+        /* Prevent double sending merit by checking log */
         if (checkDoubleSend(item.id) && !item.forceSend) {
           /* Flags the failed item in the queue instead of deleting it */
-          updateQueueItem(item.id,(existing) =>({
+          updateQueueItem(item.id, (existing) => ({
             ...existing,
-            status:"failed",
-            error:"Merit already sent (detected in history).",
-            attempts: (existing.attempts ?? 0) + 1
+            status: "failed",
+            error: "Merit already sent (detected in history).",
+            attempts: (existing.attempts ?? 0) + 1,
           }));
-          console.warn(`Merit for MsgID ${item.msgId} with amount ${item.amount} already exists in history, skipping...`);
+          console.warn(
+            `Merit for MsgID ${item.msgId} with amount ${item.amount} already exists in history, skipping...`,
+          );
           continue;
         }
 
-        if( item.attempts >= 2 && item.forceSend) {
-          console.warn(`Merit for MsgID ${item.msgId} has failed ${item.attempts} times, removing from queue...`);
+        if (item.attempts >= 2 && item.forceSend) {
+          console.warn(
+            `Merit for MsgID ${item.msgId} has failed ${item.attempts} times, removing from queue...`,
+          );
           removeQueueItem(item.id);
           continue;
         }
@@ -338,7 +352,9 @@ const processMeritQueue = async () => {
         );
 
         if (item.forceSend) {
-          console.warn(`Force sending enabled for MsgID ${item.msgId}, ignoring history log check.`);
+          console.warn(
+            `Force sending enabled for MsgID ${item.msgId}, ignoring history log check.`,
+          );
           item.forceSend = false;
           updateQueueItem(item.id, (existing) => ({
             ...existing,
@@ -367,7 +383,6 @@ const processMeritQueue = async () => {
           );
 
           if (response.ok) {
-
             const html = await response.text();
 
             if (html.includes("An Error Has Occurred")) {
@@ -380,39 +395,41 @@ const processMeritQueue = async () => {
                * Note: not sure about the exact message for "no merit" yet, so I'm doing a contains check for "enough smerit" which should cover both "not enough sMerit" and "you don't have any sMerit" maybe
                * For any reason , if the error message doesn't match or there are changes in the future, it will default to "Unknown error occurred." instead of just saying "Failed to send merit" which is less informative for the user.
                * */
-              
+
               if (lowerHtml.includes("enough smerit")) {
                 errorMsg = "Not enough sMerit.";
-              } 
-              
-              else if (lowerHtml.includes("cannot send merit to yourself")) {
+              } else if (lowerHtml.includes("cannot send merit to yourself")) {
                 errorMsg = "Cannot send merit to yourself tuff guy.";
-              }
-              
-              else if(lowerHtml.includes("you can only send 50 merit ")) {
-                const match = lowerHtml.match(/you have already sent (\d+) merit to that user/i);
+              } else if (lowerHtml.includes("you can only send 50 merit ")) {
+                const match = lowerHtml.match(
+                  /you have already sent (\d+) merit to that user/i,
+                );
 
-                const sentMerit = match && !Number.isNaN(Number.parseInt(match[1], 10))? Number.parseInt(match[1], 10) : 0;
-                errorMsg = sentMerit >= 50 ? "You have already sent the maximum amount of merit to this user."
-                            : sentMerit === 0 ? "You cant send merit to this user right now."
-                            : `You can only send ${50 - sentMerit} merit to this user.`;
-                }
-                else if (lowerHtml.includes("you have already sent")) {
-                  errorMsg = "You have already sent merit to this user.";
-                }
+                const sentMerit =
+                  match && !Number.isNaN(Number.parseInt(match[1], 10))
+                    ? Number.parseInt(match[1], 10)
+                    : 0;
+                errorMsg =
+                  sentMerit >= 50
+                    ? "You have already sent the maximum amount of merit to this user."
+                    : sentMerit === 0
+                      ? "You cant send merit to this user right now."
+                      : `You can only send ${50 - sentMerit} merit to this user.`;
+              } else if (lowerHtml.includes("you have already sent")) {
+                errorMsg = "You have already sent merit to this user.";
+              }
 
               /** Flags and update  the failed item in the queue instead of deleting it */
               updateQueueItem(item.id, (existing) => ({
                 ...existing,
-                attempts: (existing.attempts ?? 0) + 1 ,
+                attempts: (existing.attempts ?? 0) + 1,
                 status: "failed",
                 error: errorMsg,
               }));
               renderQueue();
-
             } else {
               removeQueueItem(item.id);
-              const logs = GM_getValue("SUCCESS_LOGS",[]);
+              const logs = GM_getValue("SUCCESS_LOGS", []);
               logs.push({ id: item.id, timestamp: Date.now() });
               GM_setValue("SUCCESS_LOGS", logs);
               renderQueue();
@@ -422,93 +439,183 @@ const processMeritQueue = async () => {
             }
           }
           await new Promise((res) => setTimeout(res, 1500)); // wait to prevent rate-limiting before next attempt
-
         } catch (err) {
           console.error(`Error dispensing merit for MsgID ${item.msgId}:`);
-          throw new Error(`Error dispensing merit to ${item.msgId}, keeping in queue: ${err.message}`);
+          throw new Error(
+            `Error dispensing merit to ${item.msgId}, keeping in queue: ${err.message}`,
+          );
         }
       }
     } catch (err) {
-      console.error("Error in merit queue processing:", err); 
-    }finally {
-      const failCount = GM_getValue("MERIT_QUEUE", []).filter(item => item.status === "failed").length;
-      if(failCount > 0) alert(`Merit queue processing completed with ${failCount} failed item(s). Please review the queue for details.`);
-      else alert("Merit queue processing completed successfully with no errors.");
+      console.error("Error in merit queue processing:", err);
+    } finally {
+      const failCount = GM_getValue("MERIT_QUEUE", []).filter(
+        (item) => item.status === "failed",
+      ).length;
+      if (failCount > 0)
+        alert(
+          `Merit queue processing completed with ${failCount} failed item(s). Please review the queue for details.`,
+        );
+      else
+        alert("Merit queue processing completed successfully with no errors.");
       releaseLock();
-    } 
-};
-/* End of main automation logic */
+    }
+  };
+  /* End of main automation logic */
 
   /* Checks success log for a specific msgId and amount to prevent double sending */
   const checkDoubleSend = (currentId) => {
     const logs = GM_getValue("SUCCESS_LOGS", []);
 
-    if(logs.length === 0) return false;
+    if (logs.length === 0) return false;
 
     const lifeSpan = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
-    const freshLogs = logs.filter(l => l.timestamp > lifeSpan);
- 
+    const freshLogs = logs.filter((l) => l.timestamp > lifeSpan);
+
     GM_setValue("SUCCESS_LOGS", freshLogs);
-    console.log(freshLogs,freshLogs.length,"Fresh success logs after cleanup");
+    console.log(
+      freshLogs,
+      freshLogs.length,
+      "Fresh success logs after cleanup",
+    );
 
-    const logSet = new Set(freshLogs.map(l => l.id));
+    const logSet = new Set(freshLogs.map((l) => l.id));
 
-  return logSet.has(currentId);
+    return logSet.has(currentId);
   };
 
-
-const updateQueueItem = (id, updater) => {
+  const updateQueueItem = (id, updater) => {
     const queue = GM_getValue("MERIT_QUEUE", []);
-   const idx = queue.findIndex(x => x.id === id);
+    const idx = queue.findIndex((x) => x.id === id);
     if (idx === -1) return;
 
     queue[idx] = updater(queue[idx]);
     GM_setValue("MERIT_QUEUE", queue);
-};
+    const merit_stats = GM_getValue("MERIT_STATS", getMeritStats());
+    updateMeritStatsDisplay(merit_stats);
+  };
 
-const removeQueueItem = (id) => {
-  const queue = GM_getValue("MERIT_QUEUE", []);
+  const removeQueueItem = (id) => {
+    const queue = GM_getValue("MERIT_QUEUE", []);
 
-  const updated = queue.filter(item => item.id !== id);
+    const updated = queue.filter((item) => item.id !== id);
 
-  GM_setValue("MERIT_QUEUE", updated);
-};
+    GM_setValue("MERIT_QUEUE", updated);
+    const merit_stats = GM_getValue("MERIT_STATS", getMeritStats());
+    updateMeritStatsDisplay(merit_stats);
+  };
   /* Locking mechanism to prevent multiple concurrent processes  */
-  
-const isStale = (lock) => !lock || (Date.now() - lock.startedAt > LOCK_DURATION);
 
-const acquireLock = () => {
+  const isStale = (lock) =>
+    !lock || Date.now() - lock.startedAt > LOCK_DURATION;
+
+  const acquireLock = () => {
     const lock = GM_getValue(LOCK_KEY, null);
 
     if (lock && lock.active && !isStale(lock)) return false;
 
     GM_setValue(LOCK_KEY, {
       active: true,
-      startedAt: Date.now()
+      startedAt: Date.now(),
     });
 
-  return true;
-};
+    return true;
+  };
 
+  const releaseLock = () => GM_deleteValue(LOCK_KEY);
 
-const releaseLock = () => GM_deleteValue(LOCK_KEY);
-
-/* End of locking mechanism implementation */
-
+  /* End of locking mechanism implementation */
 
   const isPostEdit = !!document.querySelector('form[action*="sesc="]');
 
-  const postForm = document.forms.postmodify || document.querySelector('form[action*="action=post2"]');
+  const postForm =
+    document.forms.postmodify ||
+    document.querySelector('form[action*="action=post2"]');
 
   if (postForm && !isPostEdit) {
     postForm.addEventListener("submit", () => {
       GM_setValue("POST_ATTEMPT", Date.now());
     });
-}
+  }
 
-if (GM_getValue("POST_ATTEMPT")) {
-  processMeritQueue();
-}
+  /*  Merit stats */
+  const getMeritStats = async () => {
+    try {
+      const response = await fetch(
+        "https://bitcointalk.org/index.php?action=merit",
+      );
+      if (!response.ok) throw new Error("Failed to fetch merit stats");
 
+      const html = await response.text();
+
+      const lowerHtml = html.toLowerCase();
+
+      // console.log("merit stats raw html:", html);
+
+      const sMeritMatch = lowerHtml.match(
+        /you have\s*<b>(\d+)<\/b>\s*sendable merit/i,
+      );
+
+      const sourceMeritMatch = lowerHtml.match(
+        /the next\s*<b>(\d+)<\/b>\s*merit you spend/,
+      );
+
+      const isMeritSource =
+        lowerHtml.includes("you are a merit source") || !!sourceMeritMatch;
+
+      const stats = {
+        sMerit: Number(sMeritMatch?.[1] ?? 0),
+        sourceMerit: Number(sourceMeritMatch?.[1] ?? 0),
+        isMeritSource,
+      };
+
+      GM_setValue("MERIT_STATS_TIME_LOG", Date.now());
+
+      console.log("parsed merit stats:", stats);
+      return stats;
+    } catch (error) {
+      console.error("Error fetching merit stats:", error);
+      return null;
+    }
+  };
+
+  const updateMeritStatsDisplay = async (stats) => {
+    if (!stats) return;
+    const meritQueue = GM_getValue("MERIT_QUEUE", []);
+    const totalQueued = meritQueue.reduce(
+      (sum, item) => sum + Number(item.amount),
+      0,
+    );
+    const sourceUsed = Math.min(totalQueued, stats.sourceMerit);
+    const personalUsed = Math.max(0, totalQueued - stats.sourceMerit);
+    console.log("su", sourceUsed, "pu", personalUsed);
+    const remainingSourceSmerit = stats.sourceMerit - sourceUsed;
+    const remainingSmerit = stats.sMerit - personalUsed;
+
+    document.getElementById("mq-queued-smerit").textContent = totalQueued;
+    document.getElementById("mq-remaining-smerit").textContent =
+      remainingSmerit;
+    document.getElementById("mq-remaining-source-smerit").textContent =
+      remainingSourceSmerit;
+  };
+
+  if (GM_getValue("POST_ATTEMPT")) {
+    processMeritQueue();
+  }
+
+  //fetches and updates merit stats on page load after five minutes or if stats are not available in storage
+  if (
+    GM_getValue("MERIT_STATS", null) === null ||
+    Date.now() - GM_getValue("MERIT_STATS_TIME_LOG", 0) > 60000 * 5
+  ) {
+    getMeritStats().then((stats) => {
+      if (!stats) return;
+      GM_setValue("MERIT_STATS", stats);
+      document.getElementById("mq-total-smerit").textContent = stats.sMerit;
+      document.getElementById("mq-source-smerit").textContent =
+        stats.sourceMerit;
+      updateMeritStatsDisplay(stats);
+    });
+  }
 })();
