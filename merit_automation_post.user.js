@@ -539,7 +539,7 @@
     });
   }
 
-  /*  Merit stats */
+  /*=== sMerit stats === */
   const getMeritStats = async () => {
     try {
       const response = await fetch(
@@ -589,33 +589,43 @@
     );
     const sourceUsed = Math.min(totalQueued, stats.sourceMerit);
     const personalUsed = Math.max(0, totalQueued - stats.sourceMerit);
-    console.log("su", sourceUsed, "pu", personalUsed);
+    // console.log("su", sourceUsed, "pu", personalUsed);
     const remainingSourceSmerit = stats.sourceMerit - sourceUsed;
     const remainingSmerit = stats.sMerit - personalUsed;
 
     document.getElementById("mq-queued-smerit").textContent = totalQueued;
     document.getElementById("mq-remaining-smerit").textContent =
-      remainingSmerit;
+      remainingSmerit < 0
+        ? `you need at least ${totalQueued - stats.sMerit} sMerit(s)`
+        : remainingSmerit;
+
     document.getElementById("mq-remaining-source-smerit").textContent =
       remainingSourceSmerit;
   };
+
+  const renderMeritStats = (stats) => {
+    if (!stats) return;
+    document.getElementById("mq-total-smerit").textContent = stats.sMerit;
+    document.getElementById("mq-source-smerit").textContent = stats.sourceMerit;
+    updateMeritStatsDisplay(stats);
+  }; //end of sMerit stats
 
   if (GM_getValue("POST_ATTEMPT")) {
     processMeritQueue();
   }
 
-  //fetches and updates merit stats on page load after five minutes or if stats are not available in storage
-  if (
-    GM_getValue("MERIT_STATS", null) === null ||
-    Date.now() - GM_getValue("MERIT_STATS_TIME_LOG", 0) > 60000 * 5
-  ) {
+  //fetches and updates merit stats on page load after five minutes or if stats are not available in storage..
+  const cachedStats = GM_getValue("MERIT_STATS", null);
+  const cachedAt = GM_getValue("MERIT_STATS_TIME_LOG", 0);
+  const isStaleStats = !cachedStats || Date.now() - cachedAt > 60000 * 5; // 5 minutes
+
+  if (isStaleStats) {
     getMeritStats().then((stats) => {
       if (!stats) return;
       GM_setValue("MERIT_STATS", stats);
-      document.getElementById("mq-total-smerit").textContent = stats.sMerit;
-      document.getElementById("mq-source-smerit").textContent =
-        stats.sourceMerit;
-      updateMeritStatsDisplay(stats);
+      renderMeritStats(stats);
     });
+  } else {
+    renderMeritStats(cachedStats);
   }
 })();
