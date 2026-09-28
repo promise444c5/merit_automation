@@ -24,10 +24,10 @@
         /* Modal */
         #merit-queue-content {
             background-color: #ffffff; margin: 4% auto; padding: 24px; border-radius: 12px;
-            width: 85%; max-width: 850px; max-height: 85vh; /* Keep within viewport */
+            width: 85%; max-width: 950px; max-height: 85vh; /* Keep within viewport */
             display: flex; flex-direction: column; /* Allows nested list to fill space & scroll */
             box-shadow: 0 10px 40px rgba(0,0,0,0.3); color: #333; font-family: system-ui, -apple-system, sans-serif;
-            box-sizing: border-box; max-height: 80vh; overflow-y: auto; to #merit-queue-content
+            box-sizing: border-box; overflow-y: auto; 
         }
 
         /* Header & Close */
@@ -37,7 +37,8 @@
 
         /* Scrolling List */
         #mq-list {
-            flex-grow: 1; overflow-y: auto; overflow-x: hidden;
+            flex-grow: 1 1 auto; min-height: 0;
+            overflow-y: auto; overflow-x: hidden;
             padding-right: 12px; margin: 15px 0;
             display: flex; flex-direction: column; gap: 10px;
         }
@@ -84,9 +85,25 @@
             margin: 0 !important;
             flex-shrink: 0;
         }
+        #mq-smerit-tracker { 
+            flex-grow: 0 0 auto; margin-top:5px; padding: 10px; border-radius: 4px;
+            font-size: 12px; color: #333; display: flex; flex-direction: column; 
+            gap: 4px; border-top: 2px solid #f0f0f0;
+          }
+
+        #mq-smerit-tracker p { width: 100%; margin: 0; font-size: 12px; line-height: 1.35; display: flex; justify-content: left; gap:5px }
+
+        #mq-smerit-tracker strong { color: #64748b; font-weight: 600; }
+        #mq-smerit-tracker span { font-weight: 700;}
+
+        #mq-total-smerit,
+        #mq-source-smerit { color: #15803d;}
+        #mq-queued-smerit, #mq-remaining-smerit,#mq-remaining-source-smerit { color: #b91c1c;}
+
         #mq-force-send:hover { background: #fdba74; color: #78350f; transform: scale(1.05); }
 
-        #mq-save-container { text-align: center; margin-top: auto; padding-top: 15px; border-top: 2px solid #f0f0f0; }
+        #mq-save-container { flex: 0 0 auto; text-align: center; margin-top: auto; padding-top: 15px; border-top: 2px solid #f0f0f0; }
+
         #mq-save-btn {
             padding: 12px 35px; font-size: 15px; font-weight: 600; cursor: pointer;
             background: #047857; color: #fff;
@@ -171,12 +188,12 @@
               </div>
                 <div id="mq-list"></div>
                <div>
-                <div id="mq-merit-tracker">
-                 <p>Total sMerit: <span id="mq-total-smerit">0</span></p>
-                 <p>Source sMerit: <span id="mq-source-smerit">0</span></p>
-                 <p>Queued sMerit: <span id="mq-queued-smerit">0</span></p> 
-                 <p>Remaining sMerit: <span id="mq-remaining-smerit">0</span></p>
-                 <p>Remaining Source sMerit: <span id="mq-remaining-source-smerit">0</span></p>
+                <div id="mq-smerit-tracker">
+                 <p><strong>sMerit:</strong> <span id="mq-total-smerit">0</span></p>
+                 <p><strong>Source sMerit:</strong> <span id="mq-source-smerit">0</span></p>
+                 <p><strong>Queued sMerit:</strong> <span id="mq-queued-smerit">0</span></p> 
+                 <p><strong>Remaining sMerit:</strong> <span id="mq-remaining-smerit">0</span></p>
+                 <p><strong>Remaining Source sMerit:</strong> <span id="mq-remaining-source-smerit">0</span></p>
                 </div>
                 <div id="mq-save-container"><button id="mq-save-btn">Save Changes</button></div>
                 </div>
@@ -615,17 +632,18 @@
   }
 
   //fetches and updates merit stats on page load after five minutes or if stats are not available in storage..
-  const cachedStats = GM_getValue("MERIT_STATS", null);
-  const cachedAt = GM_getValue("MERIT_STATS_TIME_LOG", 0);
-  const isStaleStats = !cachedStats || Date.now() - cachedAt > 60000 * 5; // 5 minutes
+  const cachedMeritStats = GM_getValue("MERIT_STATS", null);
+  const cachedMeritStatsAt = GM_getValue("MERIT_STATS_TIME_LOG", 0);
+  const isStaleMeritStats =
+    !cachedMeritStats || Date.now() - cachedMeritStatsAt > 60000 * 5; // 5 minutes
 
-  if (isStaleStats) {
+  if (isStaleMeritStats) {
     getMeritStats().then((stats) => {
       if (!stats) return;
       GM_setValue("MERIT_STATS", stats);
       renderMeritStats(stats);
     });
   } else {
-    renderMeritStats(cachedStats);
+    renderMeritStats(cachedMeritStats);
   }
 })();
