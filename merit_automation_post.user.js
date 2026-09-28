@@ -122,6 +122,10 @@
   /* Loads active queue from storage on script initialization*/
   let meritQueue = GM_getValue("MERIT_QUEUE", []);
 
+  /*sMerits stats */
+  let cachedMeritStats = GM_getValue("MERIT_STATS", null);
+  let cachedMeritStatsAt = GM_getValue("MERIT_STATS_TIME_LOG", 0);
+
   const queueBtnTemplate = document.createElement("a");
   queueBtnTemplate.href = "javascript:void(0);";
   queueBtnTemplate.innerHTML =
@@ -212,6 +216,8 @@
       return;
     }
 
+    verifyAndUpdateMeritStats();
+
     /* Queue items */
     listContainer.innerHTML = meritQueue
       .map((item, index) => {
@@ -246,6 +252,7 @@
 
   /* remove button */
   listContainer.addEventListener("click", (e) => {
+    // remove updates only with save chnages..
     if (e.target?.classList.contains("mq-remove")) {
       meritQueue.splice(e.target.dataset.index, 1);
       GM_setValue("MERIT_QUEUE", meritQueue);
@@ -255,6 +262,7 @@
 
   /* force send button */
   listContainer.addEventListener("click", (e) => {
+    //todo force send updates only with save changes..
     if (e.target?.id === "mq-force-send") {
       const index = e.target.dataset.index;
       meritQueue[index].forceSend = true;
@@ -266,20 +274,24 @@
   document.getElementById("open-mq-btn").onclick = () => {
     meritQueue = GM_getValue("MERIT_QUEUE", []);
     renderQueue();
+
     modal.style.display = "block";
   };
 
   document.querySelector(".mq-close").onclick = () => {
+    //todo= equate loaded meritqeu with storgae to create a "save" warning.
     modal.style.display = "none";
   };
 
   window.onclick = (e) => {
+    //todo= equate loaded meritqeu with storgae to create a "save" warning.
     if (e.target === modal) {
       modal.style.display = "none";
     }
   };
 
   document.getElementById("mq-save-btn").onclick = () => {
+    //todo update dircet with new meritqeue data,select should update smerit stats if possibl
     document.querySelectorAll(".mq-amount").forEach((sel) => {
       meritQueue[sel.dataset.index].amount = sel.value;
     });
@@ -443,13 +455,11 @@
                 status: "failed",
                 error: errorMsg,
               }));
-              renderQueue();
             } else {
               removeQueueItem(item.id);
               const logs = GM_getValue("SUCCESS_LOGS", []);
               logs.push({ id: item.id, timestamp: Date.now() });
               GM_setValue("SUCCESS_LOGS", logs);
-              renderQueue();
               console.log(
                 `Successfully sent ${item.amount} merit for MsgID ${item.msgId}`,
               );
@@ -509,6 +519,8 @@
 
     queue[idx] = updater(queue[idx]);
     GM_setValue("MERIT_QUEUE", queue);
+    meritQueue = queue;
+    renderQueue();
     const merit_stats = GM_getValue("MERIT_STATS", getMeritStats());
     updateMeritStatsDisplay(merit_stats);
   };
@@ -519,8 +531,8 @@
     const updated = queue.filter((item) => item.id !== id);
 
     GM_setValue("MERIT_QUEUE", updated);
-    const merit_stats = GM_getValue("MERIT_STATS", getMeritStats());
-    updateMeritStatsDisplay(merit_stats);
+    meritQueue = updated; // Update the in-memory queue as well
+    renderQueue();
   };
   /* Locking mechanism to prevent multiple concurrent processes  */
 
@@ -587,8 +599,6 @@
         isMeritSource,
       };
 
-      GM_setValue("MERIT_STATS_TIME_LOG", Date.now());
-
       console.log("parsed merit stats:", stats);
       return stats;
     } catch (error) {
@@ -604,6 +614,7 @@
       (sum, item) => sum + Number(item.amount),
       0,
     );
+    console.log("got here");
     const sourceUsed = Math.min(totalQueued, stats.sourceMerit);
     const personalUsed = Math.max(0, totalQueued - stats.sourceMerit);
     // console.log("su", sourceUsed, "pu", personalUsed);
@@ -621,29 +632,41 @@
   };
 
   const renderMeritStats = (stats) => {
-    if (!stats) return;
     document.getElementById("mq-total-smerit").textContent = stats.sMerit;
     document.getElementById("mq-source-smerit").textContent = stats.sourceMerit;
     updateMeritStatsDisplay(stats);
-  }; //end of sMerit stats
+  };
+
+  const verifyAndUpdateMeritStats = () => {
+    if (Date.now() - cachedMeritStatsAt > 60000 * 5) {
+      getMeritStats().then((stats) => {
+        if (!stats) return;
+        const timeLog = Date.now();
+        GM_setValue("MERIT_STATS", stats);
+        GM_setValue("MERIT_STATS_TIME_LOG", timeLog);
+        cachedMeritStats = stats;
+        cachedMeritStatsAt = timeLog;
+        renderMeritStats(stats);
+      });
+    } else {
+      renderMeritStats(cachedMeritStats);
+    }
+  };
+  //end of sMerit stats
 
   if (GM_getValue("POST_ATTEMPT")) {
     processMeritQueue();
   }
 
-  //fetches and updates merit stats on page load after five minutes or if stats are not available in storage..
-  const cachedMeritStats = GM_getValue("MERIT_STATS", null);
-  const cachedMeritStatsAt = GM_getValue("MERIT_STATS_TIME_LOG", 0);
-  const isStaleMeritStats =
-    !cachedMeritStats || Date.now() - cachedMeritStatsAt > 60000 * 5; // 5 minutes
-
-  if (isStaleMeritStats) {
+  //fetches and updates merit stats on page load after ten minutes if stats are not available in storage..
+  if (!cachedMeritStats || Date.now() - cachedMeritStatsAt > 60000 * 10) {
     getMeritStats().then((stats) => {
       if (!stats) return;
+      const timeLog = Date.now();
       GM_setValue("MERIT_STATS", stats);
-      renderMeritStats(stats);
+      GM_setValue("MERIT_STATS_TIME_LOG", timeLog);
+      cachedMeritStats = stats;
+      cachedMeritStatsAt = timeLog;
     });
-  } else {
-    renderMeritStats(cachedMeritStats);
   }
 })();
