@@ -610,10 +610,15 @@
   const updateMeritStatsDisplay = async (stats) => {
     if (!stats) return;
     const meritQueue = GM_getValue("MERIT_QUEUE", []);
-    const totalQueued = meritQueue.reduce(
-      (sum, item) => sum + Number(item.amount),
-      0,
-    );
+    // const totalQueued = meritQueue.reduce(
+    //   (sum, item) => sum + Number(item.amount),
+    //   0,
+    // );
+    const totalQueued = meritQueue.reduce((sum, item) => {
+      if (item.status === "failed" && !item.forceSend) return sum;
+      return sum + Number(item.amount);
+    }, 0);
+
     console.log("got here");
     const sourceUsed = Math.min(totalQueued, stats.sourceMerit);
     const personalUsed = Math.max(0, totalQueued - stats.sourceMerit);
