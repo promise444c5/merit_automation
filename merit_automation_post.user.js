@@ -252,21 +252,24 @@
 
   /* remove button */
   listContainer.addEventListener("click", (e) => {
-    // remove updates only with save chnages..
     if (e.target?.classList.contains("mq-remove")) {
       meritQueue.splice(e.target.dataset.index, 1);
-      GM_setValue("MERIT_QUEUE", meritQueue);
       renderQueue();
     }
   });
 
+  listContainer.addEventListener("change", (e) => {
+    if (e.target?.classList.contains("mq-amount")) {
+      const index = e.target.dataset.index;
+      meritQueue[index].amount = parseInt(e.target.value, 10);
+      verifyAndUpdateMeritStats();
+    }
+  });
   /* force send button */
   listContainer.addEventListener("click", (e) => {
-    //todo force send updates only with save changes..
     if (e.target?.id === "mq-force-send") {
       const index = e.target.dataset.index;
       meritQueue[index].forceSend = true;
-      GM_setValue("MERIT_QUEUE", meritQueue);
       renderQueue();
     }
   });
@@ -279,25 +282,40 @@
   };
 
   document.querySelector(".mq-close").onclick = () => {
-    //todo= equate loaded meritqeu with storgae to create a "save" warning.
+    // Shows a warning if there are unsaved changes in the merit queue
+    if (!arraysEqual(meritQueue, GM_getValue("MERIT_QUEUE", []))) {
+      if (
+        !confirm(
+          "You have unsaved changes. Are you sure you want to close the modal?",
+        )
+      ) {
+        return;
+      }
+    }
     modal.style.display = "none";
   };
 
   window.onclick = (e) => {
-    //todo= equate loaded meritqeu with storgae to create a "save" warning.
+      // console.log("arraysEqual check:", arraysEqual(meritQueue, GM_getValue("MERIT_QUEUE", [])));
     if (e.target === modal) {
+      if (!arraysEqual(meritQueue, GM_getValue("MERIT_QUEUE", []))) {
+        console.log("Arrays are not equal");
+        if (!confirm("You have unsaved changes. Are you sure you want to close the modal?",
+          )
+        ) {
+          return;
+        }
+      }
       modal.style.display = "none";
     }
   };
-
+ 
+  
   document.getElementById("mq-save-btn").onclick = () => {
-    //todo update dircet with new meritqeue data,select should update smerit stats if possibl
-    document.querySelectorAll(".mq-amount").forEach((sel) => {
-      meritQueue[sel.dataset.index].amount = sel.value;
-    });
+    //todo update dircet with new meritqeue data,select should update smerit stats if possible
     GM_setValue("MERIT_QUEUE", meritQueue);
+    verifyAndUpdateMeritStats();
     alert("Queue settings successfully saved!");
-    modal.style.display = "none";
   };
 
   /*
@@ -567,6 +585,18 @@
       GM_setValue("POST_ATTEMPT", Date.now());
     });
   }
+
+  //array comparison helper function to check if two arrays are equal based on id, amount, and forceSend properties
+  const arraysEqual = (a, b) => {
+    if (a === null || b === null) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i].id !== b[i].id || a[i].amount !== b[i].amount || a[i].forceSend !== b[i].forceSend) {
+        return false;
+      }
+    }
+  return true;
+}
 
   /*=== sMerit stats === */
   const getMeritStats = async () => {
