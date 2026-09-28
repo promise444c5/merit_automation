@@ -639,7 +639,6 @@
 
   const updateMeritStatsDisplay = async (stats) => {
     if (!stats) return;
-    const meritQueue = GM_getValue("MERIT_QUEUE", []);
     // const totalQueued = meritQueue.reduce(
     //   (sum, item) => sum + Number(item.amount),
     //   0,
