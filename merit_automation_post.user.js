@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bitcointalk Merit Automation [Post_Trigger]
 // @namespace    https://greasyfork.org/users/1613258
-// @version      1.1.0
+// @version      1.2.0
 // @description  Queue posts to merit them later on next post.. User has to login for script to load.
 // @author       promise444c5
 // @match        https://bitcointalk.org/index.php?topic=*
