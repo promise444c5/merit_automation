@@ -130,7 +130,7 @@
   const queueBtnTemplate = document.createElement("a");
   queueBtnTemplate.href = "javascript:void(0);";
   queueBtnTemplate.innerHTML =
-    '&nbsp;<span style="vertical-align: middle;"><b>+Queue</b></span>';
+    '&nbsp;&nbsp;<span style="vertical-align: middle;"><b>+Qmerit</b></span>';
 
   const topicMatch = window.location.href.match(/topic=(\d+)/);
   const topicId = topicMatch ? topicMatch[1] : "0";
