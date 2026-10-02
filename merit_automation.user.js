@@ -119,10 +119,10 @@
   /*sMerits stats */
   let cachedMeritStats = GM_getValue("MERIT_STATS", null);
   let cachedMeritStatsAt = GM_getValue("MERIT_STATS_TIME_LOG", 0);
+  let meritStatsRefreshInterval = 10 * 60 * 1000; // 10 minutes
 
   /* Loads active queue from storage on script initialization*/
   let meritQueue = GM_getValue("MERIT_QUEUE", []);
-  let meritStatsRefreshInterval = 10 * 60 * 1000; // 10 minutes
 
   const getLocalISOTime = (dateObj) => {
     const offset = dateObj.getTimezoneOffset() * 60000;
