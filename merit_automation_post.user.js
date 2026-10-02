@@ -125,6 +125,7 @@
   /*sMerits stats */
   let cachedMeritStats = GM_getValue("MERIT_STATS", null);
   let cachedMeritStatsAt = GM_getValue("MERIT_STATS_TIME_LOG", 0);
+  let meritStatsRefreshInterval = 10 * 60 * 1000; // 10 minutes
 
   const queueBtnTemplate = document.createElement("a");
   queueBtnTemplate.href = "javascript:void(0);";
@@ -296,11 +297,12 @@
   };
 
   window.onclick = (e) => {
-      // console.log("arraysEqual check:", arraysEqual(meritQueue, GM_getValue("MERIT_QUEUE", [])));
+    // console.log("arraysEqual check:", arraysEqual(meritQueue, GM_getValue("MERIT_QUEUE", [])));
     if (e.target === modal) {
       if (!arraysEqual(meritQueue, GM_getValue("MERIT_QUEUE", []))) {
-        console.log("Arrays are not equal");
-        if (!confirm("You have unsaved changes. Are you sure you want to close the modal?",
+        if (
+          !confirm(
+            "You have unsaved changes. Are you sure you want to close the modal?",
           )
         ) {
           return;
@@ -309,13 +311,12 @@
       modal.style.display = "none";
     }
   };
- 
-  
+
   document.getElementById("mq-save-btn").onclick = () => {
     //todo update dircet with new meritqeue data,select should update smerit stats if possible
     GM_setValue("MERIT_QUEUE", meritQueue);
     verifyAndUpdateMeritStats();
-    alert("Queue settings successfully saved!");
+    alert("Queue settings saved successfully! ");
   };
 
   /*
@@ -537,10 +538,8 @@
 
     queue[idx] = updater(queue[idx]);
     GM_setValue("MERIT_QUEUE", queue);
-    meritQueue = queue;
+    meritQueue = queue; // Update the in-memory queue
     renderQueue();
-    const merit_stats = GM_getValue("MERIT_STATS", getMeritStats());
-    updateMeritStatsDisplay(merit_stats);
   };
 
   const removeQueueItem = (id) => {
@@ -552,8 +551,8 @@
     meritQueue = updated; // Update the in-memory queue as well
     renderQueue();
   };
-  /* Locking mechanism to prevent multiple concurrent processes  */
 
+  /* Locking mechanism to prevent multiple concurrent processes  */
   const isStale = (lock) =>
     !lock || Date.now() - lock.startedAt > LOCK_DURATION;
 
@@ -591,12 +590,16 @@
     if (a === null || b === null) return false;
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
-      if (a[i].id !== b[i].id || a[i].amount !== b[i].amount || a[i].forceSend !== b[i].forceSend) {
+      if (
+        a[i].id !== b[i].id ||
+        a[i].amount !== b[i].amount ||
+        a[i].forceSend !== b[i].forceSend
+      ) {
         return false;
       }
     }
-  return true;
-}
+    return true;
+  };
 
   /*=== sMerit stats === */
   const getMeritStats = async () => {
@@ -629,7 +632,7 @@
         isMeritSource,
       };
 
-      console.log("parsed merit stats:", stats);
+      // console.log("parsed merit stats:", stats);
       return stats;
     } catch (error) {
       console.error("Error fetching merit stats:", error);
@@ -639,16 +642,12 @@
 
   const updateMeritStatsDisplay = async (stats) => {
     if (!stats) return;
-    // const totalQueued = meritQueue.reduce(
-    //   (sum, item) => sum + Number(item.amount),
-    //   0,
-    // );
+
     const totalQueued = meritQueue.reduce((sum, item) => {
       if (item.status === "failed" && !item.forceSend) return sum;
       return sum + Number(item.amount);
     }, 0);
 
-    console.log("got here");
     const sourceUsed = Math.min(totalQueued, stats.sourceMerit);
     const personalUsed = Math.max(0, totalQueued - stats.sourceMerit);
     // console.log("su", sourceUsed, "pu", personalUsed);
@@ -672,7 +671,10 @@
   };
 
   const verifyAndUpdateMeritStats = () => {
-    if (Date.now() - cachedMeritStatsAt > 60000 * 5) {
+    if (
+      !cachedMeritStats ||
+      Date.now() - cachedMeritStatsAt > meritStatsRefreshInterval
+    ) {
       getMeritStats().then((stats) => {
         if (!stats) return;
         const timeLog = Date.now();
@@ -693,7 +695,10 @@
   }
 
   //fetches and updates merit stats on page load after ten minutes if stats are not available in storage..
-  if (!cachedMeritStats || Date.now() - cachedMeritStatsAt > 60000 * 10) {
+  if (
+    !cachedMeritStats ||
+    Date.now() - cachedMeritStatsAt > meritStatsRefreshInterval
+  ) {
     getMeritStats().then((stats) => {
       if (!stats) return;
       const timeLog = Date.now();

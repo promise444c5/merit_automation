@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bitcointalk Merit Automation [No_Post_Trigger]
 // @namespace    https://greasyfork.org/users/1613258
-// @version      1.1.0
+// @version      1.2.0
 // @description  Queue posts to merit them later with a precise time execution.. User has to login for scrpt to load.
 // @author       promise444c5
 // @match        https://bitcointalk.org/index.php?topic=*
@@ -16,11 +16,6 @@
 (() => {
   "use strict";
 
-  const getLocalISOTime = (dateObj) => {
-    const offset = dateObj.getTimezoneOffset() * 60000;
-    return new Date(dateObj - offset).toISOString().slice(0, 16);
-  };
-
   GM_addStyle(`
         /* Modal Overlay */
         #merit-queue-modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(3px); }
@@ -28,10 +23,10 @@
         /* Modal */
         #merit-queue-content {
             background-color: #ffffff; margin: 4% auto; padding: 24px; border-radius: 12px;
-            width: 85%; max-width: 850px; max-height: 85vh; /* Keep within viewport */
+            width: 85%; max-width: 950px; max-height: 85vh; /* Keep within viewport */
             display: flex; flex-direction: column; /* Allows nested list to fill space & scroll */
             box-shadow: 0 10px 40px rgba(0,0,0,0.3); color: #333; font-family: system-ui, -apple-system, sans-serif;
-            box-sizing: border-box; max-height: 80vh; overflow-y: auto; to #merit-queue-content
+            box-sizing: border-box; overflow-y: auto;
         }
 
         /* Header & Close */
@@ -41,7 +36,8 @@
 
         /* Scrolling List */
         #mq-list {
-            flex-grow: 1; overflow-y: auto; overflow-x: hidden;
+            flex-grow: 1 1 auto; min-height: 0;
+            overflow-y: auto; overflow-x: hidden;
             padding-right: 12px; margin: 15px 0;
             display: flex; flex-direction: column; gap: 10px;
         }
@@ -90,7 +86,22 @@
         }
         #mq-force-send:hover { background: #fdba74; color: #78350f; transform: scale(1.05); }
 
-        #mq-save-container { text-align: center; margin-top: auto; padding-top: 15px; border-top: 2px solid #f0f0f0; }
+          #mq-smerit-tracker { 
+            flex-grow: 0 0 auto; margin-top:5px; padding: 10px; border-radius: 4px;
+            font-size: 12px; color: #333; display: flex; flex-direction: column; 
+            gap: 4px; border-top: 2px solid #f0f0f0;
+          }
+
+        #mq-smerit-tracker p { width: 100%; margin: 0; font-size: 12px; line-height: 1.35; display: flex; justify-content: left; gap:5px }
+
+        #mq-smerit-tracker strong { color: #64748b; font-weight: 600; }
+        #mq-smerit-tracker span { font-weight: 700;}
+
+        #mq-total-smerit,
+        #mq-source-smerit { color: #15803d;}
+        #mq-queued-smerit, #mq-remaining-smerit,#mq-remaining-source-smerit { color: #b91c1c;}
+
+        #mq-save-container { flex: 0 0 auto; text-align: center; margin-top: auto; padding-top: 15px; border-top: 2px solid #f0f0f0; }
         #mq-save-btn {
             padding: 12px 35px; font-size: 15px; font-weight: 600; cursor: pointer;
             background: #047857; color: #fff;
@@ -105,8 +116,18 @@
   const LOCK_KEY = "merit_queue_lock";
   const LOCK_DURATION = 60000;
 
+  /*sMerits stats */
+  let cachedMeritStats = GM_getValue("MERIT_STATS", null);
+  let cachedMeritStatsAt = GM_getValue("MERIT_STATS_TIME_LOG", 0);
+
   /* Loads active queue from storage on script initialization*/
   let meritQueue = GM_getValue("MERIT_QUEUE", []);
+  let meritStatsRefreshInterval = 10 * 60 * 1000; // 10 minutes
+
+  const getLocalISOTime = (dateObj) => {
+    const offset = dateObj.getTimezoneOffset() * 60000;
+    return new Date(dateObj - offset).toISOString().slice(0, 16);
+  };
 
   const queueBtnTemplate = document.createElement("a");
   queueBtnTemplate.href = "javascript:void(0);";
@@ -161,7 +182,6 @@
         attempts: 0,
       },
     ];
-    console.log("Updated Merit Queue:", meritQueue);
     GM_setValue("MERIT_QUEUE", meritQueue);
     alert(`Added a post from ${username} to Merit Queue`);
   };
@@ -178,11 +198,14 @@
                 </div>
                 <div id="mq-list"></div>
                 <div>
-                <div id="mq-merit-tracker">
-                 <p>Total Merit: <span id="mq-total-merit">0</span></p>
-                 <p>Merit Qeued: <span id="mq-queued-count">0</span></p> <p>Source Merit: <span id="mq-remaining-merit">0</span></p> <p>Remaining Personal Smerit: <span id="mq-personal-smerit">0</span></p>
-                </div>
-                <div id="mq-save-container"><button id="mq-save-btn">Save Changes</button></div>
+                  <div id="mq-smerit-tracker">
+                  <p><strong>sMerit:</strong> <span id="mq-total-smerit">0</span></p>
+                  <p><strong>Source sMerit:</strong> <span id="mq-source-smerit">0</span></p>
+                  <p><strong>Queued sMerit:</strong> <span id="mq-queued-smerit">0</span></p> 
+                  <p><strong>Remaining sMerit:</strong> <span id="mq-remaining-smerit">0</span></p>
+                  <p><strong>Remaining Source sMerit:</strong> <span id="mq-remaining-source-smerit">0</span></p>
+                  </div>
+                  <div id="mq-save-container"><button id="mq-save-btn">Save Changes</button></div>
                 </div>
             </div>
         </div>
@@ -198,6 +221,8 @@
       listContainer.innerHTML = "<p>No posts in queue.</p>";
       return;
     }
+
+    verifyAndUpdateMeritStats();
 
     /*Queue items */
     listContainer.innerHTML = meritQueue
@@ -236,8 +261,19 @@
   listContainer.addEventListener("click", (e) => {
     if (e.target?.classList.contains("mq-remove")) {
       meritQueue.splice(e.target.dataset.index, 1);
-      GM_setValue("MERIT_QUEUE", meritQueue);
       renderQueue();
+    }
+  });
+
+  listContainer.addEventListener("change", (e) => {
+    if (e.target?.classList.contains("mq-amount")) {
+      const index = e.target.dataset.index;
+      meritQueue[index].amount = parseInt(e.target.value, 10);
+      verifyAndUpdateMeritStats();
+    }
+    if (e.target?.classList.contains("mq-date")) {
+      const index = e.target.dataset.index;
+      meritQueue[index].date = new Date(e.target.value).getTime();
     }
   });
 
@@ -247,7 +283,6 @@
       const index = e.target.dataset.index;
       meritQueue[index].forceSend = true;
       meritQueue[index].date = Date.now();
-      GM_setValue("MERIT_QUEUE", meritQueue);
       renderQueue();
     }
   });
@@ -259,30 +294,43 @@
   };
 
   document.querySelector(".mq-close").onclick = () => {
+    // Shows a warning if there are unsaved changes in the merit queue
+    if (!arraysEqual(meritQueue, GM_getValue("MERIT_QUEUE", []))) {
+      if (
+        !confirm(
+          "You have unsaved changes. Are you sure you want to close the modal?",
+        )
+      ) {
+        return;
+      }
+    }
     modal.style.display = "none";
   };
 
   window.onclick = (e) => {
     if (e.target === modal) {
+      if (!arraysEqual(meritQueue, GM_getValue("MERIT_QUEUE", []))) {
+        if (
+          !confirm(
+            "You have unsaved changes. Are you sure you want to close the modal?",
+          )
+        ) {
+          return;
+        }
+      }
       modal.style.display = "none";
     }
   };
 
   document.getElementById("mq-save-btn").onclick = () => {
-    document.querySelectorAll(".mq-amount").forEach((sel) => {
-      meritQueue[sel.dataset.index].amount = sel.value;
-    });
-
-    document.querySelectorAll(".mq-date").forEach((inp) => {
-      meritQueue[inp.dataset.index].date = new Date(inp.value).getTime();
-    });
-
     GM_setValue("MERIT_QUEUE", meritQueue);
-    alert("Queue settings successfully saved!");
-    modal.style.display = "none";
+    verifyAndUpdateMeritStats();
+    alert("Queue settings saved successfully! ");
   };
 
-  /* Main automation logic */
+  /*
+   ** Main automation logic
+   */
   const processMeritQueue = async () => {
     const queue = GM_getValue("MERIT_QUEUE", []);
     console.log("Processing Merit Queue:", queue);
@@ -416,13 +464,11 @@
                   error: errorMsg,
                   attempts: (existing.attempts ?? 0) + 1,
                 }));
-                renderQueue();
               } else {
                 removeQueueItem(item.id);
                 const successLogs = GM_getValue("SUCCESS_LOGS", []);
-                successLogs.push({ id: item.id, timestamp: item.date });
+                successLogs.push({ id: item.id, timestamp: Date.now() });
                 GM_setValue("SUCCESS_LOGS", successLogs);
-                renderQueue();
                 console.log(
                   `Successfully sent ${item.amount} merit for MsgID ${item.msgId}`,
                 );
@@ -437,6 +483,8 @@
           }
         } else console.log("Time not Fufiiled yet...");
       }
+    } catch (err) {
+      console.error("Error in merit queue processing:", err);
     } finally {
       const failCount = GM_getValue("MERIT_QUEUE", []).filter(
         (item) => item.status === "failed",
@@ -445,11 +493,7 @@
         alert(
           `Merit queue processing completed with ${failCount} failed item(s). Please review the queue for details.`,
         );
-      else
-        console.log(
-          "Merit queue processing completed successfully with no errors.",
-        );
-      releaseLock();
+      else releaseLock();
     }
   };
 
@@ -470,9 +514,9 @@
       "Fresh success logs after cleanup",
     );
 
-    return freshLogs.some(
-      (l) => l.id === currentId && l.timestamp === timestamp,
-    );
+    const logSet = new Set(freshLogs.map((l) => l.id));
+
+    return logSet.has(currentId);
   };
 
   const updateQueueItem = (id, updater) => {
@@ -481,6 +525,8 @@
     if (idx === -1) return;
     queue[idx] = updater(queue[idx]);
     GM_setValue("MERIT_QUEUE", queue);
+    meritQueue = queue; // Update the in-memory queue
+    renderQueue();
   };
 
   const removeQueueItem = (id) => {
@@ -489,6 +535,8 @@
     const updated = queue.filter((item) => item.id !== id);
 
     GM_setValue("MERIT_QUEUE", updated);
+    meritQueue = updated; // Update the in-memory queue
+    renderQueue();
   };
 
   const isStale = (lock) =>
@@ -508,6 +556,127 @@
   };
 
   const releaseLock = () => GM_deleteValue(LOCK_KEY);
+
+  //array comparison helper function to check if two arrays are equal based on id, amount, and forceSend properties
+  const arraysEqual = (a, b) => {
+    if (a === null || b === null) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (
+        a[i].id !== b[i].id ||
+        a[i].amount !== b[i].amount ||
+        a[i].forceSend !== b[i].forceSend ||
+        a[i].date !== b[i].date
+      ) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  /*=== sMerit stats === */
+  const getMeritStats = async () => {
+    try {
+      const response = await fetch(
+        "https://bitcointalk.org/index.php?action=merit",
+      );
+      if (!response.ok) throw new Error("Failed to fetch merit stats");
+
+      const html = await response.text();
+
+      const lowerHtml = html.toLowerCase();
+
+      // console.log("merit stats raw html:", html);
+
+      const sMeritMatch = lowerHtml.match(
+        /you have\s*<b>(\d+)<\/b>\s*sendable merit/i,
+      );
+
+      const sourceMeritMatch = lowerHtml.match(
+        /the next\s*<b>(\d+)<\/b>\s*merit you spend/,
+      );
+
+      const isMeritSource =
+        lowerHtml.includes("you are a merit source") || !!sourceMeritMatch;
+
+      const stats = {
+        sMerit: Number(sMeritMatch?.[1] ?? 0),
+        sourceMerit: Number(sourceMeritMatch?.[1] ?? 0),
+        isMeritSource,
+      };
+
+      // console.log("parsed merit stats:", stats);
+      return stats;
+    } catch (error) {
+      console.error("Error fetching merit stats:", error);
+      return null;
+    }
+  };
+
+  const updateMeritStatsDisplay = async (stats) => {
+    if (!stats) return;
+
+    const totalQueued = meritQueue.reduce((sum, item) => {
+      if (item.status === "failed" && !item.forceSend) return sum;
+      return sum + Number(item.amount);
+    }, 0);
+
+    const sourceUsed = Math.min(totalQueued, stats.sourceMerit);
+    const personalUsed = Math.max(0, totalQueued - stats.sourceMerit);
+    // console.log("su", sourceUsed, "pu", personalUsed);
+    const remainingSourceSmerit = stats.sourceMerit - sourceUsed;
+    const remainingSmerit = stats.sMerit - personalUsed;
+
+    document.getElementById("mq-queued-smerit").textContent = totalQueued;
+    document.getElementById("mq-remaining-smerit").textContent =
+      remainingSmerit < 0
+        ? `you need at least ${totalQueued - stats.sMerit} sMerit(s)`
+        : remainingSmerit;
+
+    document.getElementById("mq-remaining-source-smerit").textContent =
+      remainingSourceSmerit;
+  };
+
+  const renderMeritStats = (stats) => {
+    document.getElementById("mq-total-smerit").textContent = stats.sMerit;
+    document.getElementById("mq-source-smerit").textContent = stats.sourceMerit;
+    updateMeritStatsDisplay(stats);
+  };
+
+  const verifyAndUpdateMeritStats = () => {
+    if (
+      !cachedMeritStats ||
+      Date.now() - cachedMeritStatsAt > meritStatsRefreshInterval
+    ) {
+      getMeritStats().then((stats) => {
+        if (!stats) return;
+        const timeLog = Date.now();
+        GM_setValue("MERIT_STATS", stats);
+        GM_setValue("MERIT_STATS_TIME_LOG", timeLog);
+        cachedMeritStats = stats;
+        cachedMeritStatsAt = timeLog;
+        renderMeritStats(stats);
+      });
+    } else {
+      renderMeritStats(cachedMeritStats);
+    }
+  };
+  //end of sMerit stats
+
+  //fetches and updates merit stats on page load after ten minutes if stats are not available in storage..
+  if (
+    !cachedMeritStats ||
+    Date.now() - cachedMeritStatsAt > meritStatsRefreshInterval
+  ) {
+    getMeritStats().then((stats) => {
+      if (!stats) return;
+      const timeLog = Date.now();
+      GM_setValue("MERIT_STATS", stats);
+      GM_setValue("MERIT_STATS_TIME_LOG", timeLog);
+      cachedMeritStats = stats;
+      cachedMeritStatsAt = timeLog;
+    });
+  }
 
   processMeritQueue();
 })();
